@@ -10,53 +10,107 @@ import (
 
 const port = ":8080"
 
-type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Severity	string `json:"severity"`
-	Message		string `json:"message"`
+type Event struct {
+    Timestamp string `json:"timestamp"`
+    Severity  string `json:"severity"`
+    Message   string `json:"message"`
 }
 
-var logs []LogEntry
-
-func logsHandler(w http.ResponseWriter, r *http.Request) {
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-
-	switch r.Method {
-
-	// Armazenar logs enviados via POST
-	case http.MethodPost:
-		addLogsHandler(w, r)
-		return
-
-
-	// Consultas dos logs via GET 
-	case http.MethodGet:
-		getLogsHandler(w, r)
-		return
-
-	default:
-		http.Error(w, "Método não suportado", http.StatusMethodNotAllowed)
-		return
-	}
+// POST /event
+type EventRequest struct {
+    UserID    string `json:"user_id"`
+    Timestamp string `json:"timestamp"`
+    Severity  string `json:"severity"`
+    Message   string `json:"message"`
 }
 
-func addLogsHandler(w http.ResponseWriter, r *http.Request) {
-		var entry LogEntry
-		err := json.NewDecoder(r.Body).Decode(&entry)
-		if err != nil {
-			http.Error(w, "Erro ao analisar o JSON do log", http.StatusBadRequest)
+type Log struct {
+    UserID string  `json:"user_id"`
+    Events []Event `json:"events"`
+}
+
+var logs []Log
+
+func eventHandler(w http.ResponseWriter, r *http.Request) {
+		// POST /event
+		if r.Method != http.MethodPost {
+        http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+        return
+    }
+
+		var EventReq EventRequest
+    err := json.NewDecoder(r.Body).Decode(&EventReq)
+    if err != nil {
+        http.Error(w, "Erro ao analisar o JSON do log", http.StatusBadRequest)
+        return
+    }
+
+		if(EventReq.UserID == "" || EventReq.Timestamp == "" || EventReq.Severity == "" || EventReq.Message == ""){
+			http.Error(w, "Todos os campos são obrigatórios", http.StatusBadRequest)
 			return
 		}
-		logs = append(logs, entry)
-		w.WriteHeader(http.StatusCreated)	
-		fmt.Fprintf(w, "Log recebido e armazenado com sucesso.\n")
+		
+		// encontrar o log do usuário ou criar um novo
+		found := false
+		for i, log := range logs {
+				if log.UserID == EventReq.UserID {
+						// adicionar o evento ao log existente
+						logs[i].Events = append(logs[i].Events, Event{
+								Timestamp: EventReq.Timestamp,
+								Severity:  EventReq.Severity,
+								Message:   EventReq.Message,
+						})
+						found = true
+						break
+				}
+		}
+		if !found {
+				// criar um novo log para o usuário
+				newLog := Log{
+						UserID: EventReq.UserID,
+						Events: []Event{
+								{
+										Timestamp: EventReq.Timestamp,
+										Severity:  EventReq.Severity,
+										Message:   EventReq.Message,
+								},
+						},
+				}
+				logs = append(logs, newLog)
+		}
+		
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, "Evento registrado com sucesso")
 }
 
-func getLogsHandler(w http.ResponseWriter, r *http.Request) {
+func logsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		q := r.URL.Query()
+		
 
+		// extrari o userID da URL
+		path := r.URL.Path
+		userID := strings.TrimPrefix(path, "/logs/")
+
+		if userID == "" {
+			http.Error(w, "userID é obrigatório na URL", http.StatusBadRequest)
+			return
+		}
+
+		//encontrar o log do usuário 
+		var userLog *Log
+		for i, log := range logs {
+			if log.UserID == userID {
+				userLog = &logs[i]
+				break
+			}
+		}
+
+		if userLog == nil {
+			http.Error(w, "Log do usuário não encontrado", http.StatusNotFound)
+			return
+		}
+
+		q := r.URL.Query()
 		// extrar os filtros da query
 		severityFilter := q.Get("severity")
 		fromStr := q.Get("from")
@@ -78,35 +132,41 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		//criação do array de logs filtrados
-		filtered := make([]LogEntry, 0, len(logs))
-		for _,le := range logs {
-			// se tiver filtro de severidade na req e não bater com o valor que procuramos no filtro, pule
-			if severityFilter != "" && !strings.EqualFold(le.Severity, severityFilter){
+		// filtrar os eventos do userLog
+		filteredEvents := make([]Event, 0, len(userLog.Events))
+		for _, event := range userLog.Events {
+
+			//checa se tem filtro de severidade na req e se o evento bate com o filtro
+			if severityFilter != "" && !strings.EqualFold(event.Severity, severityFilter) {
 				continue
 			}
 
-			// se tiver filtro de intervalo de tempo na req
+			//checa se tem filtro de from e to na req e se o evento bate com os filtros
 			if fromStr != "" || toStr != "" {
-				if le.Timestamp == ""{
+				if event.Timestamp == "" {
 					continue
 				}
-				t, perr := time.Parse(time.RFC3339, le.Timestamp)
-				if perr != nil {
-						continue
+				eventTime, err := time.Parse(time.RFC3339, event.Timestamp)
+				if err != nil {
+					continue
 				}
-				// se não bater com o intervalo de tempo que procuramos no filtro, pule
-				if !fromTime.IsZero() && t.Before(fromTime) {
-						continue
+				if !fromTime.IsZero() && eventTime.Before(fromTime) {
+					continue
 				}
-				if !toTime.IsZero() && t.After(toTime) {
-						continue
-				}
-				filtered = append(filtered, le)
-			}
+				if !toTime.IsZero() && eventTime.After(toTime) {
+					continue
+				}	
+		}
+		filteredEvents = append(filteredEvents, event)
+	}
+	
+		// criar um log com os eventos filtrados
+		result := Log{
+			UserID: userLog.UserID,
+			Events: filteredEvents,
 		}
 
-		if err := json.NewEncoder(w).Encode(logs); err != nil {
+		if err := json.NewEncoder(w).Encode(result); err != nil {
 			http.Error(w, "Erro ao codificar os logs em JSON", http.StatusInternalServerError)
 			return
 		}
@@ -114,7 +174,8 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	
-	http.HandleFunc("/logs", logsHandler)
+	http.HandleFunc("/event", eventHandler)
+	http.HandleFunc("/logs/", logsHandler)
 
 
 	fmt.Printf("Servidor iniciado e escutando em http://localhost%s\n", port)
