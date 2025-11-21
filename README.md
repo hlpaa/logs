@@ -2,11 +2,26 @@
 
 Este é um servidor HTTP mínimo escrito em Go para gerenciamento de logs por usuário.
 
-Como executar:
+## Como executar
+
+### Pré-requisitos
+
+- Go 1.22.0 ou superior instalado
+- Porta 8080 disponível
+
+### Executando o servidor
 
 ```bash
-# rodar diretamente (requere Go instalado)
-go run server.go
+# Clone ou navegue até o diretório do projeto
+cd /caminho/para/logs
+
+# Execute o servidor
+go run .
+```
+
+O servidor será iniciado na porta 8080. Você verá uma mensagem confirmando que o servidor está rodando:
+```
+Servidor iniciado na porta 8080...
 ```
 
 Endpoints:
@@ -28,7 +43,7 @@ Testar com curl:
 
 ```bash
 # adicionar evento (JSON estruturado)
-curl -X POST -H "Content-Type: application/json" -d '{"user_id":"usuario123","timestamp":"2025-11-15T20:15:00Z","severity":"ERROR","message":"Falha ao conectar"}' http://localhost:8080/event
+curl -X POST http://localhost:8080/event -H "Content-Type: application/json" -d '{"user_id": "test_user_123", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "severity": "ERROR", "message": "Error message with current timestamp"}'  
 
 # listar logs de um usuário
 curl http://localhost:8080/logs/usuario123
