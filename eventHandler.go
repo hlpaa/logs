@@ -19,33 +19,28 @@ type EventRequest struct {
 const errorLimit = 5
 const interval = time.Minute
 
-func checkErrorPeak(userId string){
+func checkErrorPeak(userLog Log){
 	//implementar a verificação de pico de erros
 
 	now := time.Now()
 	var errorCount int
 
-	//encontrar o log do usuário
-	for _, log := range logs {
-		if log.UserID == userId {
-			// encontrar eventos de erro recentes
-			for _, event := range log.Events {
-				if strings.EqualFold(event.Severity, "ERROR") {
-					eventTime, err := time.Parse(time.RFC3339, event.Timestamp)
-					if err != nil {
-						continue
-					}
-					// verificar se o evento ocorreu dentro do intervalo de tempo
-					if now.Sub(eventTime) <= interval {
-						errorCount++
-					}
-				}
+	// encontrar eventos de erro recentes
+	for _, event := range userLog.Events {
+		if strings.EqualFold(event.Severity, "ERROR") {
+			eventTime, err := time.Parse(time.RFC3339, event.Timestamp)
+			if err != nil {
+				continue
 			}
-			break
+			// verificar se o evento ocorreu dentro do intervalo de tempo
+			if now.Sub(eventTime) <= interval {
+				errorCount++
+			}
 		}
 	}
+	fmt.Printf("Usuário %s tem %d erros nos últimos %s\n", userLog.UserID, errorCount, interval)
 	if( errorCount > errorLimit){
-		fmt.Printf("Alerta: Usuário %s excedeu o limite de erros (%d erros em %s)\n", userId, errorCount, interval)
+		fmt.Printf("Alerta: Usuário %s excedeu o limite de erros com %d erros nos últimos %s\n", userLog.UserID, errorCount, interval)
 	}
 }
 
@@ -70,6 +65,7 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 
 	// encontrar o log do usuário ou criar um novo
 	found := false
+	var currentLog *Log
 	for i, log := range logs {
 		if log.UserID == EventReq.UserID {
 			// adicionar o evento ao log existente
@@ -78,6 +74,7 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 				Severity:  EventReq.Severity,
 				Message:   EventReq.Message,
 			})
+			currentLog = &logs[i]
 			found = true
 			break
 		}
@@ -95,9 +92,10 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 		logs = append(logs, newLog)
+		currentLog = &logs[len(logs)-1]
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Evento registrado com sucesso")
-	checkErrorPeak(EventReq.UserID)
+	checkErrorPeak(*currentLog)
 }
