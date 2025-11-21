@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 )
 
 // POST /event
@@ -12,6 +14,39 @@ type EventRequest struct {
 	Timestamp string `json:"timestamp"`
 	Severity  string `json:"severity"`
 	Message   string `json:"message"`
+}
+
+const errorLimit = 5
+const interval = time.Minute
+
+func checkErrorPeak(userId string){
+	//implementar a verificação de pico de erros
+
+	now := time.Now()
+	var errorCount int
+
+	//encontrar o log do usuário
+	for _, log := range logs {
+		if log.UserID == userId {
+			// encontrar eventos de erro recentes
+			for _, event := range log.Events {
+				if strings.EqualFold(event.Severity, "ERROR") {
+					eventTime, err := time.Parse(time.RFC3339, event.Timestamp)
+					if err != nil {
+						continue
+					}
+					// verificar se o evento ocorreu dentro do intervalo de tempo
+					if now.Sub(eventTime) <= interval {
+						errorCount++
+					}
+				}
+			}
+			break
+		}
+	}
+	if( errorCount > errorLimit){
+		fmt.Printf("Alerta: Usuário %s excedeu o limite de erros (%d erros em %s)\n", userId, errorCount, interval)
+	}
 }
 
 func eventHandler(w http.ResponseWriter, r *http.Request) {
@@ -64,4 +99,5 @@ func eventHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Evento registrado com sucesso")
+	checkErrorPeak(EventReq.UserID)
 }
